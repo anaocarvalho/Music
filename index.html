@@ -17,6 +17,52 @@
   </script>
 </head>
 <body>
+  <!-- ============ ACCOUNT (Supabase Auth) ============ -->
+  <section id="auth" class="gate" hidden>
+    <div class="gate-bg" aria-hidden="true">
+      <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+    </div>
+    <div class="gate-card">
+      <div class="brand brand-lg">
+        <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span>Tunesmith</span>
+      </div>
+      <h1 class="gate-title" id="auth-title">Welcome back</h1>
+      <p class="muted" id="auth-sub">Sign in with your email and password.</p>
+
+      <div class="seg" id="auth-seg" role="radiogroup" aria-label="Account">
+        <button type="button" data-mode="signin" aria-pressed="true">Sign in</button>
+        <button type="button" data-mode="signup" aria-pressed="false">Create account</button>
+      </div>
+
+      <form id="auth-form" class="stack">
+        <label class="field" id="auth-email-field">
+          <span class="label">Email</span>
+          <input id="auth-email" type="email" required placeholder="you@example.com" autocomplete="email" />
+        </label>
+        <label class="field" id="auth-pass-field">
+          <span class="label" id="auth-pass-label">Password</span>
+          <div class="input-group">
+            <input id="auth-pass" type="password" required minlength="8" placeholder="At least 8 characters" autocomplete="current-password" />
+            <button type="button" class="btn ghost icon" id="auth-toggle" aria-label="Show password" title="Show / hide">👁</button>
+          </div>
+        </label>
+        <label class="field" id="auth-pass2-field" hidden>
+          <span class="label">Confirm password</span>
+          <input id="auth-pass2" type="password" minlength="8" placeholder="Type it again" autocomplete="new-password" />
+        </label>
+        <button class="btn primary lg" type="submit" id="auth-submit">Sign in →</button>
+        <p class="gate-error" id="auth-error" role="alert" hidden></p>
+        <p class="auth-ok" id="auth-msg" role="status" hidden></p>
+      </form>
+
+      <div class="gate-help">
+        <p><button type="button" class="linkish" id="auth-forgot">Forgot your password?</button></p>
+      </div>
+      <div class="gate-theme"><div class="theme-switch" data-theme-switch></div></div>
+    </div>
+  </section>
+
   <!-- ============ KEY GATE ============ -->
   <section id="gate" class="gate" hidden>
     <div class="gate-bg" aria-hidden="true">
@@ -73,6 +119,7 @@
         </button>
         <div class="theme-switch" data-theme-switch></div>
         <button class="btn ghost icon" id="logout" title="Change API key" aria-label="Change API key">🔑</button>
+        <button class="btn ghost icon" id="signout" title="Sign out" aria-label="Sign out">⎋</button>
       </div>
     </header>
 
@@ -350,6 +397,7 @@
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <canvas id="confetti" aria-hidden="true"></canvas>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
   <script src="assets/app.js"></script>
 </body>
 </html>

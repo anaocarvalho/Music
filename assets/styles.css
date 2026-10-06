@@ -194,6 +194,9 @@ select { cursor: pointer; }
 .gate-error { color: var(--err); font-weight: 600; margin: 0; }
 .gate-help { border-top: 1px solid var(--border); padding-top: 1rem; font-size: .9rem; }
 .gate-theme { display: flex; justify-content: center; }
+.auth-ok { color: var(--accent); font-weight: 600; margin: 0; }
+.linkish { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+#auth-seg { align-self: flex-start; }
 
 /* ================= APP LAYOUT ================= */
 .app { min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 6rem; }
