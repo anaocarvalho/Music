@@ -265,16 +265,141 @@
   }
 
   /* =========================================================
+   * Account (Supabase Auth: email + password)
+   * ======================================================= */
+  // The publishable key is meant to be public; Supabase Auth enforces access.
+  const SUPABASE_URL = "https://gcpdaoisfmhpioqfclqk.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_z-WkUkeJZhPIIgayqUn_Ww_tBJp2_nj";
+  const sb = window.supabase?.createClient(SUPABASE_URL, SUPABASE_KEY) || null;
+
+  const AUTH_COPY = {
+    signin: { title: "Welcome back", sub: "Sign in with your email and password.", btn: "Sign in →", pass: "Password" },
+    signup: { title: "Create your account", sub: "Pick an email and a password to get started.", btn: "Create account →", pass: "Password" },
+    forgot: { title: "Reset your password", sub: "We'll email you a link to set a new one.", btn: "Send reset link →" },
+    reset: { title: "Set a new password", sub: "Choose a new password for your account.", btn: "Save new password →", pass: "New password" },
+  };
+  let authMode = "signin";
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    const c = AUTH_COPY[mode];
+    $("#auth-title").textContent = c.title;
+    $("#auth-sub").textContent = c.sub;
+    $("#auth-submit").textContent = c.btn;
+    if (c.pass) $("#auth-pass-label").textContent = c.pass;
+    $("#auth-seg").hidden = mode === "forgot" || mode === "reset";
+    $$("#auth-seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+    $("#auth-email-field").hidden = mode === "reset";
+    $("#auth-email").required = mode !== "reset";
+    $("#auth-pass-field").hidden = mode === "forgot";
+    $("#auth-pass").required = mode !== "forgot";
+    $("#auth-pass").autocomplete = mode === "signin" ? "current-password" : "new-password";
+    const confirm = mode === "signup" || mode === "reset";
+    $("#auth-pass2-field").hidden = !confirm;
+    $("#auth-pass2").required = confirm;
+    $("#auth-forgot").textContent = mode === "signin" || mode === "signup" ? "Forgot your password?" : "← Back to sign in";
+    $("#auth-forgot").hidden = mode === "reset";
+    authNote();
+  }
+  function authNote(err, msg) {
+    $("#auth-error").hidden = !err;
+    $("#auth-error").textContent = err || "";
+    $("#auth-msg").hidden = !msg;
+    $("#auth-msg").textContent = msg || "";
+  }
+  function showAuth(mode = "signin", err) {
+    $("#app").hidden = true;
+    $("#gate").hidden = true;
+    $("#auth").hidden = false;
+    setAuthMode(mode);
+    if (err) authNote(err);
+    setTimeout(() => $(mode === "reset" ? "#auth-pass" : "#auth-email").focus(), 50);
+  }
+
+  function initAuth() {
+    $("#auth-seg").addEventListener("click", (e) => {
+      const b = e.target.closest("button[data-mode]");
+      if (b) setAuthMode(b.dataset.mode);
+    });
+    $("#auth-forgot").addEventListener("click", () => setAuthMode(authMode === "signin" || authMode === "signup" ? "forgot" : "signin"));
+    $("#auth-toggle").addEventListener("click", () => {
+      const t = $("#auth-pass").type === "password" ? "text" : "password";
+      $("#auth-pass").type = t;
+      $("#auth-pass2").type = t;
+    });
+    $("#auth-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!sb) return authNote("Couldn't load the sign-in service. Check your connection and reload.");
+      const email = $("#auth-email").value.trim();
+      const password = $("#auth-pass").value;
+      if ((authMode === "signup" || authMode === "reset") && password !== $("#auth-pass2").value) {
+        return authNote("Passwords don't match.");
+      }
+      const btn = $("#auth-submit");
+      busy(btn, true);
+      authNote();
+      try {
+        const redirectTo = location.origin + location.pathname;
+        if (authMode === "signin") {
+          const { error } = await sb.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+          clearAuthForm();
+          enterStudio();
+        } else if (authMode === "signup") {
+          const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo } });
+          if (error) throw error;
+          clearAuthForm();
+          if (data.session) return enterStudio();
+          setAuthMode("signin");
+          $("#auth-email").value = email;
+          authNote("", "Check your inbox to confirm your email, then sign in.");
+        } else if (authMode === "forgot") {
+          const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
+          if (error) throw error;
+          authNote("", "If that email has an account, a reset link is on its way.");
+        } else if (authMode === "reset") {
+          const { error } = await sb.auth.updateUser({ password });
+          if (error) throw error;
+          clearAuthForm();
+          history.replaceState(null, "", location.pathname);
+          toast("🔒 Password updated.", "ok");
+          enterStudio();
+        }
+      } catch (err) {
+        authNote(err.message || "Something went wrong. Try again.");
+      } finally {
+        busy(btn, false);
+      }
+    });
+    $("#signout").addEventListener("click", async () => {
+      if (!confirm("Sign out of Tunesmith?")) return;
+      audio.pause();
+      await sb?.auth.signOut();
+      showAuth("signin");
+    });
+    // A password-reset email link lands here with a recovery session.
+    sb?.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") showAuth("reset");
+    });
+  }
+  function clearAuthForm() {
+    $("#auth-pass").value = "";
+    $("#auth-pass2").value = "";
+  }
+
+  /* =========================================================
    * Gate
    * ======================================================= */
   function showGate(err) {
     $("#app").hidden = true;
+    $("#auth").hidden = true;
     $("#gate").hidden = false;
     $("#gate-error").hidden = !err;
     $("#gate-error").textContent = err || "";
     setTimeout(() => $("#gate-key").focus(), 50);
   }
   function showApp() {
+    $("#auth").hidden = true;
     $("#gate").hidden = true;
     $("#app").hidden = false;
   }
@@ -1759,8 +1884,18 @@
   /* =========================================================
    * Boot
    * ======================================================= */
-  function init() {
+  // After sign-in: ask for the Suno key if needed, otherwise open the app.
+  function enterStudio() {
+    state.key = loadKey();
+    if (!state.key) return showGate();
+    showApp();
+    resumeJobs();
+    refreshCredits();
+  }
+
+  async function init() {
     initTheme();
+    initAuth();
     initGate();
     initTabs();
     initCreate();
@@ -1775,11 +1910,13 @@
     $("#credits").addEventListener("click", () => refreshCredits(false).then(() => toast(`💳 ${esc($("#credits-val").textContent)} credits available.`, "", 2500)));
     setInterval(() => { if (state.jobs.some((j) => j.status === "running")) renderRecent(); }, 4000);
 
-    state.key = loadKey();
-    if (!state.key) return showGate();
-    showApp();
-    resumeJobs();
-    refreshCredits();
+    if (!sb) return showAuth("signin", "Couldn't load the sign-in service. Check your connection and reload.");
+    // Wait for the client to read any session or recovery link from the URL.
+    const { data: { session } } = await sb.auth.getSession();
+    if (!$("#auth").hidden && authMode === "reset") return;
+    if (!session) return showAuth("signin");
+    if (/type=recovery/.test(location.hash)) return showAuth("reset");
+    enterStudio();
   }
   init();
 })();
