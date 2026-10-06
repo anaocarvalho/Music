@@ -4,6 +4,7 @@ A single-page web app for making songs with the [Suno API](https://docs.sunoapi.
 
 ## Features
 - **Account login (Supabase Auth)**: sign in or create an account with email and password, and reset a forgotten password by email. You sign in before the key gate appears, and the ⎋ button signs you out.
+- **Profiles**: each user has their own profile (photo, display name, username, bio, favourite genres). Open it from the round avatar button in the top bar. Data is stored in the Supabase `profiles` table and the `avatars` storage bucket, and row-level security lets each user see and edit only their own.
 - **Key gate**: you paste your API key before anything else, and it's checked against your credit balance. It's stored only in your browser. "Remember on this device" is optional.
 - **Create (Simple)**: describe the song, add vibe chips, use 🎲 Surprise me, optionally add lyrics, and attach image, audio or video references (by URL or file upload).
 - **Create (Custom)**: title, style (with ✨ AI style boost), a lyrics editor with section tags, ✍️ AI lyric writing, instrumental toggle, excluded styles, vocal gender, style/weirdness/audio weights, variety, target length and personas.

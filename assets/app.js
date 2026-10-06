@@ -278,6 +278,13 @@
     forgot: { title: "Reset your password", sub: "We'll email you a link to set a new one.", btn: "Send reset link →" },
     reset: { title: "Set a new password", sub: "Choose a new password for your account.", btn: "Save new password →", pass: "New password" },
   };
+  const AUTH_ERRORS = {
+    invalid_credentials: "That email and password don't match. Check them, or use “Forgot your password?”.",
+    email_not_confirmed: "Please confirm your email first: click the link we sent to your inbox.",
+    over_email_send_rate_limit: "Too many emails were sent recently. Wait a few minutes and try again.",
+    user_already_exists: "An account with that email already exists. Sign in instead.",
+    weak_password: "That password is too weak. Try a longer one with letters and numbers.",
+  };
   let authMode = "signin";
 
   function setAuthMode(mode) {
@@ -366,7 +373,7 @@
           enterStudio();
         }
       } catch (err) {
-        authNote(err.message || "Something went wrong. Try again.");
+        authNote(AUTH_ERRORS[err.code] || err.message || "Something went wrong. Try again.");
       } finally {
         busy(btn, false);
       }
@@ -375,6 +382,8 @@
       if (!confirm("Sign out of Tunesmith?")) return;
       audio.pause();
       await sb?.auth.signOut();
+      profile = null;
+      renderAvatar();
       showAuth("signin");
     });
     // A password-reset email link lands here with a recovery session.
@@ -385,6 +394,152 @@
   function clearAuthForm() {
     $("#auth-pass").value = "";
     $("#auth-pass2").value = "";
+  }
+
+  /* =========================================================
+   * Profile (public.profiles + "avatars" storage bucket)
+   * ======================================================= */
+  let profile = null;
+
+  async function loadProfile() {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) return null;
+    const { data, error } = await sb.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    if (error) throw error;
+    // Normally created by a database trigger at sign-up; this covers any gap.
+    profile = data || { id: user.id, display_name: "", username: null, bio: "", favorite_genres: [], avatar_url: null };
+    profile.email = user.email;
+    renderAvatar();
+    return profile;
+  }
+
+  function avatarHTML(p) {
+    if (p?.avatar_url) return `<img src="${esc(p.avatar_url)}" alt="" />`;
+    const name = p?.display_name || p?.email || "";
+    return name ? esc(name.trim()[0].toUpperCase()) : "👤";
+  }
+  function renderAvatar() {
+    $("#profile-avatar").innerHTML = avatarHTML(profile);
+    $("#profile-btn").title = profile?.display_name ? `${profile.display_name} — your profile` : "Your profile";
+  }
+
+  async function openProfile() {
+    try {
+      if (!profile) await loadProfile();
+    } catch (err) { return errToast(err); }
+    const p = profile;
+    const genres = [...new Set([...GENRES, ...(p.favorite_genres || [])])];
+    const card = openModal(`
+      <form class="stack" id="profile-form" novalidate>
+        <div class="profile-head">
+          <h3>Your profile</h3>
+          <button type="button" class="btn ghost icon" data-close aria-label="Close">✕</button>
+        </div>
+        <div class="profile-photo">
+          <span class="avatar lg" id="pf-avatar">${avatarHTML(p)}</span>
+          <div class="stack" style="gap:.4rem">
+            <label class="btn soft sm">📷 Upload photo<input type="file" id="pf-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden /></label>
+            <button type="button" class="btn ghost sm" id="pf-remove" ${p.avatar_url ? "" : "hidden"}>Remove photo</button>
+            <span class="tiny muted">PNG, JPG, WebP or GIF, up to 2 MB.</span>
+          </div>
+        </div>
+        <label class="field">
+          <span class="label">Display name</span>
+          <input id="pf-name" maxlength="60" value="${esc(p.display_name)}" placeholder="How your name appears" />
+        </label>
+        <label class="field">
+          <span class="label">Username</span>
+          <input id="pf-username" maxlength="24" value="${esc(p.username)}" placeholder="e.g. ana_beats" autocapitalize="off" spellcheck="false" />
+          <span class="tiny muted">3–24 characters: lowercase letters, numbers and _ only.</span>
+        </label>
+        <label class="field">
+          <div class="label-row"><span class="label">Bio</span><span class="tiny muted" id="pf-bio-count"></span></div>
+          <textarea id="pf-bio" rows="3" maxlength="300" placeholder="Tell us about your music">${esc(p.bio)}</textarea>
+        </label>
+        <div class="field">
+          <span class="label">Favourite genres <span class="muted">(up to 10)</span></span>
+          <div class="chips" id="pf-genres">${genres.map((g) => `<button type="button" class="chip${p.favorite_genres?.includes(g) ? " on" : ""}" data-v="${esc(g)}">${esc(g)}</button>`).join("")}</div>
+        </div>
+        <p class="tiny muted">Signed in as ${esc(p.email)}</p>
+        <p class="gate-error" id="pf-error" role="alert" hidden></p>
+        <button class="btn primary" type="submit" id="pf-save">Save profile</button>
+      </form>`, "sm");
+
+    let avatarUrl = p.avatar_url;
+    let newFile = null;
+    const setErr = (m) => { $("#pf-error", card).hidden = !m; $("#pf-error", card).textContent = m || ""; };
+    const bioCount = () => { $("#pf-bio-count", card).textContent = `${$("#pf-bio", card).value.length}/300`; };
+    bioCount();
+    $("#pf-bio", card).addEventListener("input", bioCount);
+    $("#pf-username", card).addEventListener("input", (e) => { e.target.value = e.target.value.toLowerCase().replace(/\s+/g, "_"); });
+    $("#pf-genres", card).addEventListener("click", (e) => {
+      const c = e.target.closest(".chip");
+      if (!c) return;
+      if (!c.classList.contains("on") && $$(".chip.on", card).length >= 10) return setErr("You can pick up to 10 genres.");
+      setErr();
+      c.classList.toggle("on");
+    });
+    $("#pf-file", card).addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      if (f.size > 2 * 1024 * 1024) return setErr("That photo is over 2 MB. Pick a smaller one.");
+      setErr();
+      newFile = f;
+      $("#pf-avatar", card).innerHTML = `<img src="${URL.createObjectURL(f)}" alt="" />`;
+      $("#pf-remove", card).hidden = false;
+    });
+    $("#pf-remove", card).addEventListener("click", () => {
+      newFile = null;
+      avatarUrl = null;
+      $("#pf-file", card).value = "";
+      $("#pf-avatar", card).innerHTML = avatarHTML({ ...p, avatar_url: null, display_name: $("#pf-name", card).value });
+      $("#pf-remove", card).hidden = true;
+    });
+
+    $("#profile-form", card).addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = $("#pf-username", card).value.trim() || null;
+      if (username && !/^[a-z0-9_]{3,24}$/.test(username)) return setErr("Usernames are 3–24 characters: lowercase letters, numbers and _ only.");
+      const btn = $("#pf-save", card);
+      busy(btn, true);
+      setErr();
+      try {
+        if (newFile) {
+          const ext = (newFile.name.split(".").pop() || "png").toLowerCase();
+          const path = `${p.id}/avatar-${Date.now()}.${ext}`;
+          const { error } = await sb.storage.from("avatars").upload(path, newFile, { contentType: newFile.type });
+          if (error) throw error;
+          avatarUrl = sb.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+        }
+        const row = {
+          id: p.id,
+          display_name: $("#pf-name", card).value.trim() || null,
+          username,
+          bio: $("#pf-bio", card).value.trim() || null,
+          favorite_genres: $$(".chip.on", card).map((c) => c.dataset.v),
+          avatar_url: avatarUrl,
+        };
+        const { data, error } = await sb.from("profiles").upsert(row).select().single();
+        if (error) throw error.code === "23505" ? new Error("That username is taken. Try another one.") : error;
+        // Clean up the replaced photo; a failure here doesn't affect the profile.
+        if (p.avatar_url && p.avatar_url !== avatarUrl) {
+          const old = p.avatar_url.split("/avatars/")[1];
+          if (old) sb.storage.from("avatars").remove([decodeURIComponent(old)]);
+        }
+        profile = { ...data, email: p.email };
+        renderAvatar();
+        closeModal();
+        toast("✅ Profile saved.", "ok");
+      } catch (err) {
+        setErr(err.message || "Couldn't save your profile. Try again.");
+      } finally {
+        busy(btn, false);
+      }
+    });
+  }
+
+  function initProfile() {
+    $("#profile-btn").addEventListener("click", openProfile);
   }
 
   /* =========================================================
@@ -1886,6 +2041,7 @@
    * ======================================================= */
   // After sign-in: ask for the Suno key if needed, otherwise open the app.
   function enterStudio() {
+    loadProfile().catch(() => { /* the avatar falls back to a placeholder */ });
     state.key = loadKey();
     if (!state.key) return showGate();
     showApp();
@@ -1896,6 +2052,7 @@
   async function init() {
     initTheme();
     initAuth();
+    initProfile();
     initGate();
     initTabs();
     initCreate();
